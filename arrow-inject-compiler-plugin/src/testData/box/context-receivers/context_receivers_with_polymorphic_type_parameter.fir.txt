@@ -1,0 +1,46 @@
+FILE: context_receivers_with_polymorphic_type_parameter.kt
+    package foo.bar
+
+    public abstract interface Repository<T> : R|kotlin/Any| {
+    }
+    public final class IntRepo : R|foo/bar/Repository<kotlin/Int>| {
+        public constructor(): R|foo/bar/IntRepo| {
+            super<R|kotlin/Any|>()
+        }
+
+    }
+    @R|arrow/inject/annotations/Provider|() public final fun repo(): R|foo/bar/Repository<kotlin/Int>| {
+        ^repo R|foo/bar/IntRepo.IntRepo|()
+    }
+    context(R|foo/bar/Repository<T>|)
+    public final class UseCase<T> : R|kotlin/Any| {
+        public constructor<T>(x: R|kotlin/Int|): R|foo/bar/UseCase<T>| {
+            super<R|kotlin/Any|>()
+        }
+
+        public final val x: R|kotlin/Int| = R|<local>/x|
+            public get(): R|kotlin/Int|
+
+    }
+    public final fun f(): R|kotlin/Int| {
+        R|arrow/inject/annotations/context|<R|foo/bar/Repository<kotlin/Int>|>()
+        ^f R|foo/bar/UseCase.UseCase|<R|kotlin/Int|>(x = Int(0)).R|SubstitutionOverride<foo/bar/UseCase.x: R|kotlin/Int|>|
+    }
+    public final fun f3(): R|kotlin/Int| {
+        ^f3 R|arrow/inject/annotations/contextual|<R|foo/bar/Repository<kotlin/Int>|, R|kotlin/Int|>(R|foo/bar/repo|(), <L> = contextual@fun R|foo/bar/Repository<kotlin/Int>|.<anonymous>(): R|kotlin/Int| <inline=Inline, kind=UNKNOWN>  {
+            ^f3 R|foo/bar/UseCase.UseCase|<R|kotlin/Int|>(x = Int(0)).R|SubstitutionOverride<foo/bar/UseCase.x: R|kotlin/Int|>|
+        }
+        )
+    }
+    public final fun box(): R|kotlin/String| {
+        lval result: R|kotlin/Int| = R|foo/bar/f|()
+        ^box when () {
+            ==(R|<local>/result|, Int(0)) ->  {
+                String(OK)
+            }
+            else ->  {
+                <strcat>(String(Fail: ), R|<local>/result|)
+            }
+        }
+
+    }
