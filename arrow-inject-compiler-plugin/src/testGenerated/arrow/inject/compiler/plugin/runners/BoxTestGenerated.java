@@ -171,5 +171,11 @@ public class BoxTestGenerated extends AbstractBoxTest {
         public void testContext_receivers() throws Exception {
             runTest("src/testData/box/context-receivers/context_receivers.kt");
         }
+
+        @Test
+        @TestMetadata("context_receivers_with_polymorphic_type_parameter.kt")
+        public void testContext_receivers_with_polymorphic_type_parameter() throws Exception {
+            runTest("src/testData/box/context-receivers/context_receivers_with_polymorphic_type_parameter.kt");
+        }
     }
 }

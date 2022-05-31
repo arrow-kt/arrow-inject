@@ -136,6 +136,12 @@ public class DiagnosticTestGenerated extends AbstractDiagnosticTest {
         }
 
         @Test
+        @TestMetadata("context_receivers_with_polymorphic_type_parameter.kt")
+        public void testContext_receivers_with_polymorphic_type_parameter() throws Exception {
+            runTest("src/testData/diagnostics/context-receivers/context_receivers_with_polymorphic_type_parameter.kt");
+        }
+
+        @Test
         @TestMetadata("inductive.kt")
         public void testInductive() throws Exception {
             runTest("src/testData/diagnostics/context-receivers/inductive.kt");
