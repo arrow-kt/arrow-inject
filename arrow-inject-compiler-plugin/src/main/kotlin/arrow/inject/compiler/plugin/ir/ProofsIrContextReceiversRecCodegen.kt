@@ -7,6 +7,7 @@ import arrow.inject.compiler.plugin.model.ProofResolution
 import arrow.inject.compiler.plugin.model.asProofCacheKey
 import org.jetbrains.kotlin.backend.common.extensions.IrPluginContext
 import org.jetbrains.kotlin.backend.common.lower.DeclarationIrBuilder
+import org.jetbrains.kotlin.backend.jvm.functionByName
 import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.fir.declarations.FirMemberDeclaration
@@ -41,7 +42,9 @@ import org.jetbrains.kotlin.ir.expressions.IrStatementOrigin
 import org.jetbrains.kotlin.ir.expressions.impl.IrFunctionExpressionImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
 import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
+import org.jetbrains.kotlin.ir.symbols.IrSimpleFunctionSymbol
 import org.jetbrains.kotlin.ir.symbols.IrValueParameterSymbol
+import org.jetbrains.kotlin.ir.symbols.impl.IrSimpleFunctionSymbolImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrValueParameterSymbolImpl
 import org.jetbrains.kotlin.ir.types.IrType
 import org.jetbrains.kotlin.ir.types.IrTypeArgument
@@ -53,17 +56,33 @@ import org.jetbrains.kotlin.ir.types.defaultType
 import org.jetbrains.kotlin.ir.types.typeWith
 import org.jetbrains.kotlin.ir.util.constructors
 import org.jetbrains.kotlin.ir.util.dumpKotlinLike
+import org.jetbrains.kotlin.ir.util.fqNameForIrSerialization
 import org.jetbrains.kotlin.ir.util.fqNameWhenAvailable
+import org.jetbrains.kotlin.ir.util.functions
+import org.jetbrains.kotlin.ir.util.referenceFunction
 import org.jetbrains.kotlin.ir.util.statements
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformer
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
-import org.jetbrains.kotlin.types.KotlinType
-import org.jetbrains.kotlin.types.model.TypeArgumentMarker
 import org.jetbrains.kotlin.types.model.TypeSystemContext
 
+/**
+ * (FIR API review and comments)
+ *
+ * When having FIR enabled the IrPluginContext does not
+ * allow to call any of the `referenceFunction` or similar methods
+ * available in the plugin context.
+ *
+ * Referencing functions and symbols with the `symbolTable` requires building
+ * a custom id signature. We found symbols such as `kotlin.with` which in the
+ * previous backend returned `kotlin.StandardKt.with`, in this impl returns just
+ * `kotlin.with` with a package fragment as parent instead of the generated multi file
+ * class expected in the intrinsics. Using such references results in codegen failure.
+ * This is currently a blocker in the project as we have not been able to properly
+ * reference `kotlin.with` from backend IR when the FIR impl is underneath.
+ */
 internal class ProofsIrContextReceiversRecCodegen(
   override val proofCache: ProofCache,
   override val moduleFragment: IrModuleFragment,
@@ -121,62 +140,122 @@ internal class ProofsIrContextReceiversRecCodegen(
       steps.isEmpty() -> body //done processing
       else -> {
         val currentStep = steps.first()
-        val returningBlockType = declarationParent.returningBlockType()
-        currentStep.replacementCall.addReplacedTypeArguments(currentStep.type, returningBlockType)
         val paramSymbol = IrValueParameterSymbolImpl()
-        if (previousStepLambda != null) {
-          val returned = previousStepLambda.function.createIrReturn(currentStep.replacementCall)
-          val previousLambdaBody = (previousStepLambda.function.body as? IrBlockBody)
-          previousLambdaBody?.statements?.add(returned)
+        val nestedLambda = currentStep.createLambdaAndArguments(declarationParent, paramSymbol)
+        if (previousStepLambda != null || steps.size == 1) {
+          currentStep.addContextualCallReturn(previousStepLambda ?: nestedLambda)
         }
-        val nestedLambda =
-          createLambdaExpressionWithoutParent(currentStep.type, returningBlockType, paramSymbol) {
-            blockBody {
-            }
-          }
-        nestedLambda.function.parent = declarationParent
-        val extensionReceiverParam = nestedLambda.function.extensionReceiverParameter
-        if (extensionReceiverParam != null)
-          processContextReceiver(0, currentStep.type, currentStep.replacementCall, previousStepLambda?.function?.extensionReceiverParameter)
-        currentStep.replacementCall.putValueArgument(
-          1,
-          nestedLambda
-        )
+        currentStep.processLambdaReceiver(previousStepLambda, nestedLambda)
         val lambdaBlockBody = nestedLambda.function.body
         if (lambdaBlockBody is IrBlockBody && steps.size == 1) {  //last processing nests the remaining
-          remainingStatements.forEach {
-            val patchedStatement =
-              if (it is IrReturn)
-                nestedLambda.function.createIrReturn(it.value)
-              else it
-            lambdaBlockBody.statements.add(patchedStatement)
-          }
+          patchReturnToNestedlambda(remainingStatements, nestedLambda, lambdaBlockBody)
         }
-        val statementsBeforeContext = body.statementsBeforeContextCall()
-        val newReturn = declarationParent.createIrReturn(currentStep.replacementCall)
-        val newStatements =
-          if (steps.size != 1)
-            statementsBeforeContext + newReturn
-          else
-            statementsBeforeContext
-        val transformedBody = createBlockBody(newStatements)
-        replaceErrorExpressionsWithReceiverValues(transformedBody, currentStep.type, paramSymbol)
-        // TODO nest body with other recursive function
-        val nextSteps = steps.drop(1)
-        val remaining = body.remainingStatementsAfterCall(currentStep.contextCall)
-        transformedBody.statements.removeIf { it in remaining }
+        val (transformedBody, nextSteps, remaining) =
+          currentStep.transformBody(body, declarationParent, steps, paramSymbol)
         processBodiesRecursive(nestedLambda.function, transformedBody, nextSteps, nestedLambda, remaining + remainingStatements)
       }
     }
 
+  private fun ReceiverProcessStep.processLambdaReceiver(
+    previousStepLambda: IrFunctionExpression?,
+    nestedLambda: IrFunctionExpression
+  ) {
+    val extensionReceiverParam =
+      previousStepLambda?.function?.extensionReceiverParameter ?: nestedLambda.function.extensionReceiverParameter
+    if (extensionReceiverParam != null)
+      processContextReceiver(0, type, replacementCall, extensionReceiverParam)
+  }
+
+  private fun ReceiverProcessStep.createLambdaAndArguments(
+    declarationParent: IrDeclarationParent,
+    paramSymbol: IrValueParameterSymbolImpl
+  ): IrFunctionExpression {
+    val returningBlockType = declarationParent.returningBlockType()
+    replacementCall.addReplacedTypeArguments(type, returningBlockType)
+    val nestedLambda = createNestedLambda(returningBlockType, paramSymbol, declarationParent)
+    replacementCall.putValueArgument(1, nestedLambda)
+    return nestedLambda
+  }
+
+  private fun ReceiverProcessStep.transformBody(
+    body: IrBlockBody,
+    declarationParent: IrDeclarationParent,
+    steps: List<ReceiverProcessStep>,
+    paramSymbol: IrValueParameterSymbolImpl
+  ): Triple<IrBlockBody, List<ReceiverProcessStep>, List<IrStatement>> {
+    val statementsBeforeContext = body.statementsBeforeContextCall()
+    val newStatements =
+      transformedStatements(declarationParent, steps, statementsBeforeContext)
+    val transformedBody = createBlockBody(newStatements)
+    replaceErrorExpressionsWithReceiverValues(transformedBody, type, paramSymbol)
+    val nextSteps = steps.drop(1)
+    val remaining = body.remainingStatementsAfterCall(contextCall)
+    transformedBody.statements.removeIf { it in remaining }
+    return Triple(transformedBody, nextSteps, remaining)
+  }
+
+  private fun ReceiverProcessStep.transformedStatements(
+    declarationParent: IrDeclarationParent,
+    steps: List<ReceiverProcessStep>,
+    statementsBeforeContext: List<IrStatement>
+  ): List<IrStatement> {
+    val newReturn = declarationParent.createIrReturn(replacementCall)
+    return if (steps.size != 1)
+      statementsBeforeContext + newReturn
+    else
+      statementsBeforeContext
+  }
+
+  private fun patchReturnToNestedlambda(
+    remainingStatements: List<IrStatement>,
+    nestedLambda: IrFunctionExpression,
+    lambdaBlockBody: IrBlockBody
+  ) {
+    remainingStatements.forEach {
+      val patchedStatement =
+        if (it is IrReturn)
+          nestedLambda.function.createIrReturn(it.value)
+        else it
+      lambdaBlockBody.statements.add(patchedStatement)
+    }
+  }
+
+  private fun ReceiverProcessStep.createNestedLambda(
+    returningBlockType: IrType,
+    paramSymbol: IrValueParameterSymbolImpl,
+    declarationParent: IrDeclarationParent
+  ) =
+    createLambdaExpressionWithoutParent(type, returningBlockType, paramSymbol) {
+      blockBody {
+      }
+    }.also {
+      it.function.parent = declarationParent
+    }
+
+
+  private fun ReceiverProcessStep.addContextualCallReturn(
+    previousStepLambda: IrFunctionExpression
+  ) {
+    val returned = previousStepLambda.function.createIrReturn(replacementCall)
+    val previousLambdaBody = (previousStepLambda.function.body as? IrBlockBody)
+    previousLambdaBody?.statements?.add(returned)
+  }
+
   private fun IrBlockBody.statementsBeforeContextCall() =
     statements.takeWhile { it.findNestedContextCall() == null }
 
-  private val contextualFunction
-    get() =
-      irBuiltIns
-        .findFunctions(Name.identifier("contextual"), FqName("arrow.inject.annotations"))
+  private val contextualFunction: IrSimpleFunctionSymbol
+    get() {
+      val withFun = irBuiltIns
+        .findFunctions(Name.identifier("with"), FqName("kotlin"))
         .first()
+      return IrSimpleFunctionSymbolImpl(
+        withFun.descriptor
+      ).also {
+        symbolTable.referenceFunction(it.descriptor)
+      }
+    }
+
 
   private fun IrDeclarationParent.returningBlockType() =
     (this as? IrFunction)?.returnType ?: irBuiltIns.nothingType
@@ -444,7 +523,7 @@ internal class ProofsIrContextReceiversRecCodegen(
   }
 
   private val IrFunctionAccessExpression.isCallToContextSyntheticFunction
-    get() = symbol.owner.fqNameWhenAvailable == FqName("arrow.inject.annotations.ResolveKt.context")
+    get() = symbol.owner.fqNameForIrSerialization == FqName("arrow.inject.annotations.ProviderKt.with")
 
   private fun irTransformBlockBodies(
     transformBody: (IrDeclarationParent, IrBlockBody) -> IrBody?

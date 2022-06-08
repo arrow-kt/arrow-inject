@@ -57,6 +57,15 @@ import org.jetbrains.kotlin.resolve.calls.tasks.ExplicitReceiverKind
 import org.jetbrains.kotlin.resolve.calls.tower.CandidateApplicability
 import org.jetbrains.kotlin.types.Variance
 
+/**
+ * (FIR API review and comments)
+ *
+ * This entire service has been ported more or less from the compiler
+ * FIR call resolver and similar services.
+ * This was done so that we could resolve a fir call given a list of
+ * provider candidates. At the time we are writing this FIR does not
+ * expose any public service or hook for call resolution.
+ */
 internal class ProofResolutionStageRunner(
   override val session: FirSession,
   private val firResolutionProof: FirResolutionProof,

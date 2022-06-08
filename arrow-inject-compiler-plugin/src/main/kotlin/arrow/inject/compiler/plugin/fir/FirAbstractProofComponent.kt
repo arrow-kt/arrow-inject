@@ -48,6 +48,16 @@ internal interface FirAbstractProofComponent {
 
   val session: FirSession
 
+  /**
+   * (FIR API review and comments)
+   *
+   * I can see how providing a list of predicates to search up front
+   * can be efficient to avoid traversing the tree searching for declarations.
+   * In this case though we are forcing the user to always use or look for annotated declarations.
+   *
+   * Ideally predicates are more expressive than just searching for annotations and allow the user to
+   * search for any of the parts in the signature declaration.
+   */
   val contextPredicate: DeclarationPredicate
     get() =
       has(ProofAnnotationsFqName.ContextAnnotation)

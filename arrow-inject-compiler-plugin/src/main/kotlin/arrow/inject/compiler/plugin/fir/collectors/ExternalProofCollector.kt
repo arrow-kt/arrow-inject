@@ -23,6 +23,19 @@ import org.jetbrains.kotlin.name.CallableId
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 
+/**
+ * (FIR API review and comments)
+ *
+ * In this service we had to resort to a very costly and slow process which
+ * involves scanning the classpath. For that we had to use the classgraph library.
+ * Seems like all FIR apis are geared toward searching and finding things in the same module
+ * but there is no way to search for declarations in third party jar packages.
+ * Since our plugin exports declaration as providers that ultimately get compiled in a jar we are
+ * in need of scanning the classpath.
+ *
+ * A suggested alternative was to codegen a known file on each jar that pointed to the
+ * declarations but we did not want to add additional resources or binaries to it.
+ */
 internal class ExternalProofCollector(
   override val session: FirSession,
 ) : FirAbstractProofComponent, FirProofIdSignature {

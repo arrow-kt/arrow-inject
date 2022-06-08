@@ -10,6 +10,13 @@ import org.jetbrains.kotlin.diagnostics.rendering.BaseDiagnosticRendererFactory
 import org.jetbrains.kotlin.diagnostics.rendering.Renderer
 import org.jetbrains.kotlin.types.model.KotlinTypeMarker
 
+/**
+ * (FIR API review and comments)
+ *
+ * This API regarding how errors are managed and subscribed seems to be
+ * bringing patterns, name and conventions from the IDEA open API java counterpart.
+ * Ideally users can just register or report these in the checkers or places where they get used.
+ */
 internal object FirMetaErrorsDefaultMessages : BaseDiagnosticRendererFactory() {
 
   override val MAP: KtDiagnosticFactoryToRendererMap =

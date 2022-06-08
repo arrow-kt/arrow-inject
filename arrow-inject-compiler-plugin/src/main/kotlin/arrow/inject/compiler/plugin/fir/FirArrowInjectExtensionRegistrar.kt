@@ -18,6 +18,16 @@ public class FirArrowInjectExtensionRegistrar(
   private val proofCache: ProofCache,
 ) : FirExtensionRegistrar() {
 
+  /**
+   * (FIR API review and comments)
+   *
+   * The `+` operator makes for a nice API in simple plugins whose extensions
+   * only take a `session` as single argument but becomes more unreadable when like in our
+   * case we need to pass extra arguments to the constructor.
+   *
+   * An alternative could be that our `proofCache` argument becomes a session component.
+   * We tried that but then in the IR generation part we don't have access to the session anymore.
+   */
   override fun ExtensionRegistrarContext.configurePlugin() {
     +{ session: FirSession -> ContextProvidersResolutionExtension(proofCache, session) }
     +{ session: FirSession -> ResolvedFunctionGenerationExtension(proofCache, session) }
