@@ -6,10 +6,16 @@ import arrow.inject.compiler.plugin.model.Proof
 import org.jetbrains.kotlin.fir.FirSession
 import org.jetbrains.kotlin.fir.expressions.FirFunctionCall
 import org.jetbrains.kotlin.fir.extensions.FirExpressionResolutionExtension
+import org.jetbrains.kotlin.fir.references.FirResolvedNamedReference
+import org.jetbrains.kotlin.fir.resolvedSymbol
+import org.jetbrains.kotlin.fir.symbols.impl.FirNamedFunctionSymbol
 import org.jetbrains.kotlin.fir.types.ConeKotlinType
 import org.jetbrains.kotlin.fir.types.FirTypeProjection
 import org.jetbrains.kotlin.fir.types.toConeTypeProjection
 import org.jetbrains.kotlin.fir.types.type
+import org.jetbrains.kotlin.name.CallableId
+import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.Name
 
 internal class ContextProvidersResolutionExtension(
   override val proofCache: ProofCache,
@@ -18,6 +24,14 @@ internal class ContextProvidersResolutionExtension(
 
   override val allProofs: List<Proof> by lazy { allCollectedProofs }
 
+  /**
+   * (FIR API review and comments)
+   *
+   * This extension is great and takes care of all the scoping resolution issues we have in the frontend.
+   * Something odd we detected is that for calls that you return additional types then in backend IR the
+   * expression will show up as an error expression that requires substitution.
+   * See [arrow.inject.compiler.plugin.ir.ProofsIrContextReceiversRecCodegen.replaceErrorExpressionsWithReceiverValues]
+   */
   override fun addNewImplicitReceivers(functionCall: FirFunctionCall): List<ConeKotlinType> {
     // TODO add resolve proof here instead and iterate over all contexts in the proof
     return functionCall.contextSyntheticFunctionTypeArguments.mapNotNull {
@@ -27,7 +41,12 @@ internal class ContextProvidersResolutionExtension(
 
   // TODO: Improve this equality
   private val FirFunctionCall.isCallToContextSyntheticFunction: Boolean
-    get() = calleeReference.name.asString() == "context"
+    get() =
+      (calleeReference as? FirResolvedNamedReference)?.let {
+        (it.resolvedSymbol as? FirNamedFunctionSymbol)?.let {
+          it.callableId == CallableId(FqName("arrow.inject.annotations"), Name.identifier("with"))
+        }
+      } ?: false
 
   private val FirFunctionCall.contextSyntheticFunctionTypeArguments: List<FirTypeProjection>
     get() = if (isCallToContextSyntheticFunction) typeArguments else emptyList()

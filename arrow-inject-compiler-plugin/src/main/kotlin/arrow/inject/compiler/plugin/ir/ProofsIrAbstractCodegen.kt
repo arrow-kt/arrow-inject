@@ -89,6 +89,13 @@ interface ProofsIrAbstractCodegen : IrPluginContext, TypeSystemContext {
         .filterNotNull()
     }
 
+  /**
+   * (FIR API review and comments)
+   *
+   * Looked around for an api that would allow me to generate a call given a
+   * declaration and fill in all the boilerplate but could not find one.
+   * Here based on the type of declaration we create an appropriate call for it.
+   */
   fun IrDeclaration.irCall(): IrExpression =
     when (this) {
       is IrProperty -> {

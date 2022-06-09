@@ -26,6 +26,17 @@ sealed class Proof {
 
   abstract val declaration: FirDeclaration
 
+  /**
+   * (FIR API review and comments)
+   *
+   * # Repeated common FIR properties such as `name` not under common interface
+   *
+   * `name` and other repeated properties that appear in many nodes
+   * are scattered in the FIR hierarchy.
+   * We'd like in this case `name` and others to appear in a shared
+   * interface or place like `FirNamedDeclaration` to avoid functions
+   * like this one.
+   */
   val declarationName: Name
     get() = when (val decl = declaration) {
       is FirSimpleFunction -> decl.name

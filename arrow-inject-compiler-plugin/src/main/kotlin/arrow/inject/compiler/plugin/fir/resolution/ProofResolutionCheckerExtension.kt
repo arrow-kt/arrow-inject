@@ -19,6 +19,13 @@ import org.jetbrains.kotlin.fir.expressions.FirCall
 import org.jetbrains.kotlin.fir.extensions.FirDeclarationPredicateRegistrar
 import org.jetbrains.kotlin.fir.types.FirTypeRef
 
+/**
+ * (FIR API review and comments)
+ *
+ * We abstracted away access to this service because
+ * the creation of instances and nesting of objects was too much boilerplate
+ * when registering each service
+ */
 internal class ProofResolutionCheckerExtension(
   session: FirSession,
   declarationCheckers: List<FirAbstractDeclarationChecker>,

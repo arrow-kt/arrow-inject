@@ -163,7 +163,14 @@ internal class ResolvedFunctionGenerationExtension(
         valueParameters +=
           buildValueParameters(firNamedFunctionSymbol) + unambiguousUnitValueParameter()
       }
-      .apply { this.originalForSubstitutionOverrideAttr = firNamedFunctionSymbol.fir }
+      .apply {
+        /**
+         * (FIR API review and comments)
+         * We have run into runtime errors a few time when compiling because some of the properties
+         * in the FIR and IR builders have `lateinit var` that are not required on construction.
+         */
+        this.originalForSubstitutionOverrideAttr = firNamedFunctionSymbol.fir
+      }
       .symbol
   }
 
