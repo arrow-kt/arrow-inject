@@ -1,6 +1,6 @@
 [versions]
 arrowGradleConfig = "0.10.2"
-classgraph = "4.8.146"
+classgraph = "4.8.177"
 kotlin = "1.7.20-dev-1435"
 reflections = "0.10.2"
 
